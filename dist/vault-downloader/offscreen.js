@@ -78,7 +78,7 @@ async function run({ tabId, job }) {
     current.objectUrl = URL.createObjectURL(archive);
     const summary = failures.length ? `Partial ZIP created: ${completed.length} item(s) downloaded, ${failures.length} missing.` : `Complete ZIP created with ${completed.length} item(s).`;
     current.phase = "waiting-download";
-    send({ type: "zip-ready", tabId, url: current.objectUrl, archiveName: job.archiveName || `${title}.zip`, summary, failures });
+    send({ type: "zip-ready", tabId, url: current.objectUrl, filename: `${title}.zip`, summary, failures });
   } catch (error) {
     const state = current;
     current = null;
