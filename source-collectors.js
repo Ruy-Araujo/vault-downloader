@@ -20,11 +20,27 @@
       files.push({ id: item.unikey, name: item.modelName || "file", resolver: `${base}/api/v1/design-service/design/${id}/model?${params}` });
     });
     walk(data.designExtension?.model_files);
+    // The listing endpoint has enough data to identify the profile author, but
+    // omits the printer identifier required by the STL conversion endpoint.
+    // Keep the full profile objects returned with the design to enrich it.
+    const instanceDetails = new Map((data.instances || []).map(item => [String(item.id), item]));
     let instances = [];
     try { const result = await request(`${base}/api/v1/design-service/design/${id}/instances`, { headers: makerHeaders }); instances = result.hits || result.data?.hits || []; } catch { /* profiles are optional */ }
-    for (const instance of instances) if (String(instance.creator?.uid || instance.instanceCreator?.uid) === String(creator.uid)) {
-      const params = new URLSearchParams({ type: "download", fileType: "", devModelName: instance.detail?.modelName || instance.title || "" });
-      files.push({ id: `instance:${instance.id}`, name: instance.detail?.name || instance.title || `${instance.id}.3mf`, resolver: `${base}/api/v1/design-service/instance/${instance.id}/f3mf?${params}` });
+    for (const listedInstance of instances) {
+      const instance = instanceDetails.get(String(listedInstance.id)) || listedInstance;
+      const authorId = listedInstance.creator?.uid || listedInstance.instanceCreator?.uid || instance.creator?.uid || instance.instanceCreator?.uid;
+      if (String(authorId) !== String(creator.uid)) continue;
+      const modelInfo = instance.extention?.modelInfo || listedInstance.extention?.modelInfo || {};
+      const devModelName = modelInfo.compatibility?.devModelName || modelInfo.otherCompatibility?.[0]?.devModelName || "";
+      const profileName = instance.detail?.name || listedInstance.detail?.name || instance.title || listedInstance.title || `${instance.id}.3mf`;
+      const endpoint = `${base}/api/v1/design-service/instance/${instance.id}/f3mf`;
+      const resolve = fileType => `${endpoint}?${new URLSearchParams({ type: "download", fileType, devModelName })}`;
+      files.push({ id: `instance:${instance.id}:3mf`, name: profileName, resolver: resolve("") });
+      if (devModelName) {
+        // MakerWorld generates STL files from the selected author profile when
+        // the model does not expose standalone STL/CAD files.
+        files.push({ id: `instance:${instance.id}:stl`, name: `${profileName}.stl`, resolver: resolve("3mfstl") });
+      }
     }
     for (const file of files.filter(item => item.resolver)) { try { const resolved = await request(file.resolver, { headers: makerHeaders }); file.url = resolved.url; file.name = resolved.name || file.name; } catch (error) { file.error = error.message; } delete file.resolver; }
     const descriptionHtml = data.summary || "";
