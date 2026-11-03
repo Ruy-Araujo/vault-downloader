@@ -23,7 +23,8 @@ function render(response) {
   const running = ["reading", "running", "cancelling"].includes(status.state);
   cancel.hidden = !running;
   primary.hidden = running;
-  if (!response.canExport) { primary.hidden = true; hint.textContent = "Open a Creality Cloud model details page to export it."; }
+  if (!response.canExport) { primary.hidden = true; hint.textContent = "Open a supported model page from Creality Cloud, MakerWorld, or Printables."; }
+  else if (response.source) hint.textContent = `${response.source} source recognized.`;
   else if (status.state === "error") { primary.hidden = false; primary.textContent = "Try again"; hint.textContent = status.cacheAvailable ? "Previously downloaded files will be reused until this page is reloaded." : "The previous export did not finish. Temporary files may be reused."; }
   else if (status.state === "done") { primary.hidden = false; primary.textContent = status.cacheAvailable ? "Retry missing files" : "Export again"; hint.textContent = status.cacheAvailable ? "Previously downloaded files will be reused until this page is reloaded." : "Chrome has finished the previous download."; }
   else { primary.textContent = "Export current model"; hint.textContent = running ? "You can close this popup; the export keeps running." : ""; }

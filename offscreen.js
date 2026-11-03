@@ -140,11 +140,12 @@ async function fetchToOpfs(url, kind, cacheKey) {
 }
 
 function cacheKeyFor(kind, name, url) {
+  const source = current?.job?.source?.id || "unknown";
   if (kind === "image") {
-    try { const parsed = new URL(url); return `image:${parsed.origin}${parsed.pathname}`; }
-    catch { return `image:${url}`; }
+    try { const parsed = new URL(url); return `${source}:image:${parsed.origin}${parsed.pathname}`; }
+    catch { return `${source}:image:${url}`; }
   }
-  return `${kind}:${name.toLocaleLowerCase()}`;
+  return `${source}:${kind}:${name.toLocaleLowerCase()}`;
 }
 
 async function imageToPng(file) {
@@ -238,7 +239,7 @@ async function retry(action) {
 function createMetadata(job, files) {
   const m = job.model;
   const line = (key, value) => `${key}: ${value ?? "Not provided"}`;
-  return [line("Title", m.title), line("Source URL", m.sourceUrl), line("Model ID", m.id), line("Author", m.author?.nickName), line("Author ID", m.author?.userId), line("License", m.license), line("Categories", m.categories.map((item) => item.name).join(", ") || "Not provided"), line("Tags", m.tags.map((item) => item.name).join(", ") || "Not provided"), line("Created", formatDate(m.stats?.createdAt)), line("Updated", formatDate(m.stats?.updatedAt)), line("Downloads", m.stats?.downloads), line("Likes", m.stats?.likes), line("Collections", m.stats?.collections), line("Comments", m.stats?.comments), "", "Author 3MF profiles:", ...(job.downloads.profileDetails.length ? job.downloads.profileDetails.map((item) => `- ${item.name} | Printer: ${item.printer || "Not provided"} | ${item.settings || ""}`) : ["- None available"]), "", "Included files:", ...(files.length ? files.map((file) => `- ${file}`) : ["- None"]), "", line("Exported", new Date().toISOString()), ""].join("\n");
+  return [line("Source", job.source?.name || "Unknown"), line("Title", m.title), line("Source URL", m.sourceUrl), line("Model ID", m.id), line("Author", m.author?.nickName), line("Author ID", m.author?.userId), line("License", m.license), line("Categories", (m.categories || []).map((item) => item.name || item).join(", ") || "Not provided"), line("Tags", (m.tags || []).map((item) => item.name || item).join(", ") || "Not provided"), line("Created", formatDate(m.stats?.createdAt)), line("Updated", formatDate(m.stats?.updatedAt)), line("Downloads", m.stats?.downloads), line("Likes", m.stats?.likes), line("Collections", m.stats?.collections), line("Comments", m.stats?.comments), "", "Author 3MF profiles:", ...(job.downloads.profileDetails.length ? job.downloads.profileDetails.map((item) => `- ${item.name} | Printer: ${item.printer || "Not provided"} | ${item.settings || ""}`) : ["- None available"]), "", "Included files:", ...(files.length ? files.map((file) => `- ${file}`) : ["- None"]), "", line("Exported", new Date().toISOString()), ""].join("\n");
 }
 
 function offlineHtml(title, source, imagePaths) {

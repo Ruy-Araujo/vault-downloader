@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Vault Downloader",
+  "version": "1.1.0",
+  "description": "Exports authorized models from multiple 3D platforms into a single ZIP file.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "downloads", "offscreen", "storage"],
+  "host_permissions": [
+    "https://www.crealitycloud.com/*",
+    "https://*.crealitycloud.com/*",
+    "https://makerworld.com/*",
+    "https://*.makerworld.com/*",
+    "https://api.printables.com/*",
+    "https://www.printables.com/*",
+    "https://media.printables.com/*",
+    "https://files.printables.com/*",
+    "https://makerworld.bblmw.com/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Creality Cloud Downloader", "default_popup": "popup.html" },
+  "content_scripts": [{
+    "matches": ["https://www.crealitycloud.com/*/model-detail/*", "https://www.crealitycloud.com/model-detail/*", "https://makerworld.com/*/models/*", "https://makerworld.com/models/*", "https://www.printables.com/*/model/*", "https://www.printables.com/model/*"],
+    "js": ["cache-lifetime.js"],
+    "run_at": "document_start"
+  }]
+}

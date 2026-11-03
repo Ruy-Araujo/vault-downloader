@@ -1,4 +1,5 @@
 import { errorMessage } from "./shared.js";
+import { sourceForUrl } from "./sources.js";
 
 const activeJobs = new Map();
 const statusByTab = new Map();
@@ -22,14 +23,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function startExportForActiveTab() {
   const tab = await getActiveTab();
-  if (!isModelPage(tab)) return { ok: false, state: "unsupported", message: "Open a Creality Cloud model details page first." };
+  const source = sourceForUrl(tab.url);
+  if (!source) return { ok: false, state: "unsupported", message: "Open a supported model page from Creality Cloud, MakerWorld, or Printables first." };
+  const otherJob = [...activeJobs.values()].find(job => job.tabId !== tab.id);
+  if (otherJob) return { ok: false, state: "busy", message: `Vault Downloader is already exporting from ${otherJob.source || "another tab"}.` };
   if (activeJobs.has(tab.id)) return { ok: true, status: await statusForTab(tab.id) };
   try {
     updateStatus(tab.id, { state: "reading", stage: "Reading model information…", detail: "", current: 0, total: 1, failures: [] });
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["page-collector.js"], world: "MAIN" });
-    const [{ result: job }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: () => window.__crealityCloudExportCollect?.() });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["page-collector.js", "source-collectors.js"], world: "MAIN" });
+    const [{ result: rawJob }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: sourceId => sourceId === "creality" ? window.__crealityCloudExportCollect?.() : window.__vaultDownloaderCollectors?.[sourceId]?.(), args: [source.id] });
+    const job = normalizeJob(rawJob, source);
     if (!job?.ok) throw new Error(job?.error || "The model information could not be read.");
-    activeJobs.set(tab.id, { tabId: tab.id, title: job.model.title, cancelled: false });
+    activeJobs.set(tab.id, { tabId: tab.id, title: job.model.title, source: source.id, cancelled: false });
     await ensureOffscreen();
     await sendToOffscreen({ type: "start", tabId: tab.id, job });
     return { ok: true, status: await statusForTab(tab.id) };
@@ -50,7 +55,7 @@ async function cancelExportForActiveTab() {
 
 async function getActiveStatus() {
   const tab = await getActiveTab();
-  return { ok: true, canExport: isModelPage(tab), status: await statusForTab(tab.id) };
+  return { ok: true, canExport: Boolean(sourceForUrl(tab.url)), source: sourceForUrl(tab.url)?.name || "", status: await statusForTab(tab.id) };
 }
 
 async function getActiveTab() {
@@ -59,7 +64,12 @@ async function getActiveTab() {
   return tab;
 }
 
-function isModelPage(tab) { return /^https:\/\/www\.crealitycloud\.com\/(?:[a-z-]+\/)?model-detail\//.test(tab?.url || ""); }
+function normalizeJob(raw, source) {
+  if (!raw?.ok) throw new Error(raw?.error || "The model information could not be read.");
+  if (source.id === "creality") return { ...raw, source: { id: source.id, name: source.name } };
+  const item = raw.item || {}; const files = (raw.files || []).map(file => ({ ...file, kind: "model" }));
+  return { ok: true, source: raw.source || { id: source.id, name: source.name }, model: { ...item, stats: item.stats || {}, author: { nickName: item.author?.name, userId: item.author?.id }, categories: (item.categories || []).map(name => ({ name })), tags: (item.tags || []).map(name => ({ name })), gallery: item.gallery || [], descriptionImages: item.descriptionImages || [] }, downloads: { files, threeMf: [], profileDetails: [] } };
+}
 
 async function statusForTab(tabId) {
   if (statusByTab.has(tabId)) return statusByTab.get(tabId);
