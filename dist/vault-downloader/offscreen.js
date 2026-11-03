@@ -30,9 +30,7 @@ async function run({ tabId, job }) {
   const total = job.downloads.files.length + job.downloads.threeMf.length + job.model.gallery.length + job.model.descriptionImages.length;
   let currentIndex = 0;
   const progress = (stage, detail) => send({ type: "progress", tabId, stage, detail, current: currentIndex, total: Math.max(total, 1) });
-  // Archive entries live at the ZIP root. The model title belongs to the
-  // archive filename, not to a directory inside the archive.
-  const addText = async (name, text) => entries.push({ name: uniquePath(name, usedPaths), file: new File([text], name, { type: "text/plain;charset=utf-8" }) });
+  const addText = async (name, text) => entries.push({ name: `${title}/${name}`, file: new File([text], name, { type: "text/plain;charset=utf-8" }) });
   const addRemote = async (name, url, kind = "file", unavailableReason = "", cacheKey = cacheKeyFor(kind, name, url)) => {
     current.stage = `downloading ${name}`;
     currentIndex += 1; progress("Downloading files…", name);
@@ -40,7 +38,7 @@ async function run({ tabId, job }) {
     if (!url) { failures.push({ name, reason: unavailableReason || "Creality Cloud did not provide a download URL." }); return null; }
     try {
       const file = await retry(() => fetchToOpfs(url, kind, cacheKey));
-      const path = uniquePath(name, usedPaths); entries.push({ name: path, file }); completed.push(name); return file;
+      const path = uniquePath(`${title}/${name}`, usedPaths); entries.push({ name: path, file }); completed.push(name); return file;
     } catch (error) { failures.push({ name, reason: errorMessage(error) }); return null; }
   };
   try {
@@ -102,7 +100,7 @@ async function addImage(name, url, addRemote, category) {
   }
   try {
     const png = await imageToPng(raw);
-    const path = uniquePath(name, current.usedPaths);
+    const path = uniquePath(`${current.title}/${name}`, current.usedPaths);
     // Replace raw temporary entry with the converted entry; raw remains only in OPFS and is cleaned later.
     const index = currentEntriesIndex(raw);
     if (index >= 0) current.entries.splice(index, 1);
