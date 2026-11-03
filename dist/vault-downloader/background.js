@@ -1,4 +1,4 @@
-import { errorMessage } from "./shared.js";
+import { errorMessage, withExtension } from "./shared.js";
 import { sourceForUrl } from "./sources.js";
 
 const activeJobs = new Map();
@@ -100,8 +100,13 @@ async function sendToOffscreen(message) {
 
 async function finishDownload({ tabId, url, filename, summary, failures = [] }) {
   try {
-    const downloadId = await chrome.downloads.download({ url, filename, conflictAction: "uniquify", saveAs: false });
-    const job = activeJobs.get(tabId); if (job) job.downloadId = downloadId;
+    const job = activeJobs.get(tabId);
+    // Chrome falls back to the blob URL UUID when no filename is supplied.
+    // Derive the filename from the active job here so it cannot be lost while
+    // crossing the offscreen-document message boundary.
+    const archiveName = withExtension(job?.title || filename || "vault-export", ".zip");
+    const downloadId = await chrome.downloads.download({ url, filename: archiveName, conflictAction: "uniquify", saveAs: false });
+    if (job) job.downloadId = downloadId;
     await chrome.storage.session.set({ [`download-${downloadId}`]: { tabId, retainCache: failures.length > 0 } });
     updateStatus(tabId, { state: "done", stage: "Download started", detail: formatCompletionDetail(summary, failures), current: 1, total: 1, failures });
   } catch (error) {
