@@ -12,9 +12,6 @@ test("uses the model title for the ZIP download and keeps archive entries at its
   assert.match(background, /archive-name-\$\{tab\.id\}/);
   assert.match(background, /archive-name-\$\{tabId\}/);
   assert.match(background, /filename, conflictAction: "uniquify"/);
-  assert.match(background, /chrome\.downloads\.onDeterminingFilename\.addListener/);
-  assert.match(background, /suggest\(filename \? \{ filename, conflictAction: "uniquify" \} : undefined\)/);
-  assert.match(background, /requestedFilenameByUrl\.set\(url, filename\)/);
   assert.match(offscreen, /archiveName: job\.archiveName \|\| `\$\{title\}\.zip`/);
   assert.match(offscreen, /uniquePath\(name, usedPaths\)/);
   assert.match(offscreen, /uniquePath\(name, current\.usedPaths\)/);

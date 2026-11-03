@@ -3,19 +3,10 @@ import { sourceForUrl } from "./sources.js";
 
 const activeJobs = new Map();
 const statusByTab = new Map();
-const requestedFilenameByUrl = new Map();
 
 setActionIcon();
 chrome.runtime.onStartup.addListener(() => setActionIcon());
 chrome.runtime.onInstalled.addListener(() => setActionIcon());
-
-// Brave may derive a blob URL's UUID after chrome.downloads.download() has
-// accepted its filename option. Filename determination is the last point in
-// the download lifecycle where an extension can authoritatively override it.
-chrome.downloads.onDeterminingFilename.addListener((download, suggest) => {
-  const filename = requestedFilenameByUrl.get(download.url);
-  suggest(filename ? { filename, conflictAction: "uniquify" } : undefined);
-});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "get-status") { getActiveStatus().then(sendResponse); return true; }
@@ -121,13 +112,7 @@ async function finishDownload({ tabId, url, archiveName, summary, failures = [] 
     // Prefer the job's persisted archive name, then the explicit offscreen
     // message. Both are independent of the blob URL.
     const filename = withExtension(stored[`archive-name-${tabId}`] || job?.archiveName || archiveName || "vault-export", ".zip");
-    requestedFilenameByUrl.set(url, filename);
-    let downloadId;
-    try {
-      downloadId = await chrome.downloads.download({ url, filename, conflictAction: "uniquify", saveAs: false });
-    } finally {
-      requestedFilenameByUrl.delete(url);
-    }
+    const downloadId = await chrome.downloads.download({ url, filename, conflictAction: "uniquify", saveAs: false });
     if (job) job.downloadId = downloadId;
     await chrome.storage.session.set({ [`download-${downloadId}`]: { tabId, retainCache: failures.length > 0 } });
     updateStatus(tabId, { state: "done", stage: "Download started", detail: formatCompletionDetail(summary, failures), current: 1, total: 1, failures });
