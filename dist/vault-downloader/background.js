@@ -34,7 +34,13 @@ async function startExportForActiveTab() {
     const [{ result: rawJob }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: sourceId => sourceId === "creality" ? window.__crealityCloudExportCollect?.() : window.__vaultDownloaderCollectors?.[sourceId]?.(), args: [source.id] });
     const job = normalizeJob(rawJob, source);
     if (!job?.ok) throw new Error(job?.error || "The model information could not be read.");
-    activeJobs.set(tab.id, { tabId: tab.id, title: job.model.title, source: source.id, cancelled: false });
+    const archiveName = withExtension(job.model.title || "vault-export", ".zip");
+    job.archiveName = archiveName;
+    activeJobs.set(tab.id, { tabId: tab.id, title: job.model.title, archiveName, source: source.id, cancelled: false });
+    // The service worker can be suspended while the offscreen document builds
+    // a large archive. Keep the final name in session storage so a resumed
+    // worker never falls back to the UUID in a blob URL.
+    await chrome.storage.session.set({ [`archive-name-${tab.id}`]: archiveName });
     await ensureOffscreen();
     await sendToOffscreen({ type: "start", tabId: tab.id, job });
     return { ok: true, status: await statusForTab(tab.id) };
@@ -98,14 +104,15 @@ async function sendToOffscreen(message) {
   throw new Error(errorMessage(lastError, "The export worker did not accept the request."));
 }
 
-async function finishDownload({ tabId, url, filename, summary, failures = [] }) {
+async function finishDownload({ tabId, url, archiveName, summary, failures = [] }) {
   try {
     const job = activeJobs.get(tabId);
+    const stored = await chrome.storage.session.get(`archive-name-${tabId}`);
     // Chrome falls back to the blob URL UUID when no filename is supplied.
-    // Derive the filename from the active job here so it cannot be lost while
-    // crossing the offscreen-document message boundary.
-    const archiveName = withExtension(job?.title || filename || "vault-export", ".zip");
-    const downloadId = await chrome.downloads.download({ url, filename: archiveName, conflictAction: "uniquify", saveAs: false });
+    // Prefer the job's persisted archive name, then the explicit offscreen
+    // message. Both are independent of the blob URL.
+    const filename = withExtension(stored[`archive-name-${tabId}`] || job?.archiveName || archiveName || "vault-export", ".zip");
+    const downloadId = await chrome.downloads.download({ url, filename, conflictAction: "uniquify", saveAs: false });
     if (job) job.downloadId = downloadId;
     await chrome.storage.session.set({ [`download-${downloadId}`]: { tabId, retainCache: failures.length > 0 } });
     updateStatus(tabId, { state: "done", stage: "Download started", detail: formatCompletionDetail(summary, failures), current: 1, total: 1, failures });
@@ -130,6 +137,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   if (persistedJob) await chrome.storage.session.remove(`download-${delta.id}`);
   if (tabId) {
     const retainCache = delta.state.current === "interrupted" || persistedJob?.retainCache;
+    await chrome.storage.session.remove(`archive-name-${tabId}`);
     chrome.runtime.sendMessage({ type: retainCache ? "release-archive" : "release", tabId }).catch(() => {});
     const previous = await statusForTab(tabId);
     updateStatus(tabId, delta.state.current === "complete"
@@ -141,7 +149,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 async function clearTabCache(tabId) {
   activeJobs.delete(tabId);
   statusByTab.delete(tabId);
-  await chrome.storage.session.remove(`status-${tabId}`);
+  await chrome.storage.session.remove([`status-${tabId}`, `archive-name-${tabId}`]);
   chrome.runtime.sendMessage({ type: "clear-cache", tabId }).catch(() => {});
   setActionIcon(tabId);
 }
