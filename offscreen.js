@@ -18,6 +18,9 @@ chrome.runtime.onMessage.addListener((message) => {
 async function run({ tabId, job }) {
   const title = sanitizePathPart(job.model.title);
   const root = await navigator.storage.getDirectory();
+  // OPFS is temporary by default. Ask Chrome to retain it when it can, but do
+  // not fail exports on browsers that decline the request.
+  await navigator.storage.persist?.().catch(() => false);
   const cache = cacheByTab.get(tabId) || { root, tempNames: [], files: new Map() };
   cacheByTab.set(tabId, cache);
   current = { tabId, job, title, cancelled: false, discarding: false, phase: "running", stage: "preparing the export", root: cache.root, tempNames: cache.tempNames, cache, objectUrl: null };
@@ -42,11 +45,12 @@ async function run({ tabId, job }) {
     } catch (error) { failures.push({ name, reason: errorMessage(error) }); return null; }
   };
   try {
-    current.stage = "checking temporary storage";
-    progress("Preparing export…", "Checking available storage");
-    const estimate = await navigator.storage.estimate();
-    const declaredSize = [...job.downloads.files, ...job.downloads.threeMf].reduce((sum, item) => sum + Number(item.size || 0), 0);
-    if (estimate.quota && estimate.usage + declaredSize > estimate.quota) throw new Error("There is not enough temporary browser storage for this model.");
+    current.stage = "preparing temporary storage";
+    progress("Preparing export…", "Preparing temporary storage");
+    // Do not reject the complete export from file sizes advertised by a source.
+    // They can be absent, stale, or describe files already retained for retry.
+    // OPFS enforces the actual quota while each file is written, allowing the
+    // remaining entries to become a partial ZIP and preserving its cache.
     for (const item of job.downloads.files) await addRemote(withExtension(item.name, ""), item.url, "model", item.error, `model:${item.id}`);
     for (const item of job.downloads.threeMf) await addRemote(withExtension(item.name, ".3mf"), item.url, "model", item.error, `3mf:${item.id}`);
     const galleryMap = new Map();
@@ -134,9 +138,19 @@ async function fetchToOpfs(url, kind, cacheKey) {
   current.tempNames.push(name);
   const handle = await current.root.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  await response.body.pipeTo(writable);
-  current.cache.files.set(cacheKey, name);
-  return handle.getFile();
+  try {
+    await response.body.pipeTo(writable);
+    current.cache.files.set(cacheKey, name);
+    return handle.getFile();
+  } catch (error) {
+    // A failed write can leave a partial OPFS entry behind. Remove it so that
+    // retries do not consume the remaining quota with unusable bytes.
+    const index = current.tempNames.lastIndexOf(name);
+    if (index >= 0) current.tempNames.splice(index, 1);
+    await current.root.removeEntry(name).catch(() => {});
+    if (error?.name === "QuotaExceededError") throw new Error("There is not enough temporary browser storage for this file.");
+    throw error;
+  }
 }
 
 function cacheKeyFor(kind, name, url) {
